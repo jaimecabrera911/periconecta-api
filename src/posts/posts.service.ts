@@ -9,6 +9,7 @@ import { Post } from '../entities/post.entity';
 import { Like } from '../entities/like.entity';
 import { User } from '../entities/user.entity';
 import { CreatePostDto } from './dto/create-post.dto';
+import { PostsGateway } from './posts.gateway';
 
 @Injectable()
 export class PostsService {
@@ -19,6 +20,7 @@ export class PostsService {
     private likeRepository: Repository<Like>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    private postsGateway: PostsGateway,
   ) {}
 
   async create(createPostDto: CreatePostDto, userId: number): Promise<Post> {
@@ -108,10 +110,34 @@ export class PostsService {
       userId,
     });
 
-    await this.likeRepository.save(like);
+    const savedLike = await this.likeRepository.save(like);
 
     // Actualizar el contador de likes
     await this.postRepository.increment({ id: postId }, 'likesCount', 1);
+
+    // Obtener el usuario que dio like para enviar información completa
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      select: ['id', 'firstName', 'lastName', 'alias'],
+    });
+
+    // Obtener el conteo actualizado de likes
+    const updatedPost = await this.postRepository.findOne({
+      where: { id: postId },
+      relations: ['likes'],
+    });
+
+    // Emitir evento WebSocket
+    this.postsGateway.emitLikeAdded(postId, {
+      id: savedLike.id,
+      user: user,
+      postId: postId,
+      createdAt: savedLike.createdAt,
+    });
+
+    if (updatedPost) {
+      this.postsGateway.emitLikeCountUpdate(postId, updatedPost.likes.length);
+    }
 
     return { message: 'Like agregado exitosamente' };
   }
@@ -137,6 +163,18 @@ export class PostsService {
 
     // Actualizar el contador de likes
     await this.postRepository.decrement({ id: postId }, 'likesCount', 1);
+
+    // Obtener el conteo actualizado de likes
+    const updatedPost = await this.postRepository.findOne({
+      where: { id: postId },
+      relations: ['likes'],
+    });
+
+    // Emitir eventos WebSocket
+    this.postsGateway.emitLikeRemoved(postId, userId);
+    if (updatedPost) {
+      this.postsGateway.emitLikeCountUpdate(postId, updatedPost.likes.length);
+    }
 
     return { message: 'Like removido exitosamente' };
   }
