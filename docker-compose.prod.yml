@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: periconecta_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: periconecta_db
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - periconecta_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d periconecta_db"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: periconecta_api
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: admin
+      DB_PASSWORD: admin123
+      DB_NAME: periconecta_db
+      JWT_SECRET: your-super-secret-jwt-key-change-this-in-production
+      JWT_EXPIRES_IN: 24h
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - periconecta_network
+
+  frontend:
+    build:
+      context: ./periconecta-frontend
+      dockerfile: Dockerfile
+    container_name: periconecta_frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    networks:
+      - periconecta_network
+
+volumes:
+  postgres_data:
+
+networks:
+  periconecta_network:
+    driver: bridge
